@@ -1,5 +1,3 @@
-# http://alexanderfabisch.github.io/pybullet.html
-
 import os
 import pybullet as p
 import pybullet_data
@@ -30,13 +28,11 @@ botId = p.loadURDF("kuka_iiwa/model.urdf", [0, 0, 0])
 
 # ロボット情報の取得
 joint_num = p.getNumJoints(botId)
-"""
 print(joint_num)
 for i in range (joint_num):
     print(p.getJointInfo(botId, i))
-"""
 
-# Step 1: go to initial configuration
+# Step 1: 初期目標姿勢まで移動させる
 is_initialization_end = False
 joint_positions_initial = [-90.0, 30.0, 0.0, -50.0, 30.0, 30.0, 30.0]                           # degree
 joint_positions_initial = [joint_positions_initial[i]*np.pi/180.0 for i in range(joint_num)]    # rad
@@ -53,12 +49,12 @@ while is_initialization_end == False:
                                 controlMode=p.VELOCITY_CONTROL,
                                 targetVelocity=velocity_reference)
 
+    # シミュレーションの更新
+    p.stepSimulation()
+
     if velocity_reference <= 0.01:
         is_initialization_end = True
         print("Initialization end")
-
-    # シミュレーションの更新
-    p.stepSimulation()
 
 # Step 2: シミュレーション開始
 print("Simulation start")
@@ -68,9 +64,10 @@ for step in range(1000):
     time = step * sampling_time
 
     # ベース位置・姿勢の現在情報の取得
-    basePos, baseOrn = p.getBasePositionAndOrientation(botId) # ベース位置・姿勢行列の計算
-    baseEuler = p.getEulerFromQuaternion(baseOrn)             # ベースオイラー角
-    baseVel, baseAngularVel = p.getBaseVelocity(botId)        # ベース速度・角速度
+    basePos, baseOrn = p.getBasePositionAndOrientation(botId) # ベース位置・姿勢(クォータニオン)の計算
+    baseEuler = p.getEulerFromQuaternion(baseOrn)             # クォータニオンからベースオイラー角を計算
+    baseOrnMatrix = p.getMatrixFromQuaternion(baseOrn)        # クォータニオンから姿勢行列を計算
+    baseVel, baseAngularVel = p.getBaseVelocity(botId)        # ベース速度・角速度を取得
 
     # 関節角度の取得
     joint_positions = [j[0] for j in p.getJointStates(botId, range(p.getNumJoints(botId)))]
@@ -79,40 +76,44 @@ for step in range(1000):
     # エンドエフェクタの位置・姿勢を取得 (最終リンクの原点位置)
     kukaEndEffectorIndex = 6
     ee_states = p.getLinkState(botId, kukaEndEffectorIndex)
-    eePos = ee_states[4]                       # エンドエフェクタ位置の計算
-    eeOrn = ee_states[5]                       # エンドエフェクタのクォータニオンを取得
-    eeEuler = p.getEulerFromQuaternion(eeOrn)  # クォータニオンからオイラー角を計算
+    eePos = ee_states[4]                            # エンドエフェクタ位置の計算
+    eeOrn = ee_states[5]                            # エンドエフェクタのクォータニオンを取得
+    eeEuler = p.getEulerFromQuaternion(eeOrn)       # クォータニオンからオイラー角を計算
+    eeOrnMatrix = p.getMatrixFromQuaternion(eeOrn)  # クォータニオンから姿勢行列を計算
+
     if step == 0:
-        eePosPrev = eePos
         eePosIni = eePos
         eeOrnIni = eeOrn
+        eePosPrev = eePos
 
     # 手先目標位置を計算
     eePosCmd = list(eePosIni)
-    eePosCmd[0] = eePosIni[0] + 0.1 * np.sin(2.0 * np.pi * 1.0 * time)
-    eePosCmd[1] = eePosIni[1] #+ 0.2 * np.cos(2.0 * np.pi * 1.0 * time)
-    eePosCmd[2] = eePosIni[2] + 0.2 * np.cos(2.0 * np.pi * 1.0 * time)
     eeOrnCmd = eeOrnIni
 
+    eePosCmd[0] = eePosIni[0] + 0.1 * np.sin(2.0 * np.pi * 1.0 * time)
+    #eePosCmd[1] = eePosIni[1] + 0.2 * np.cos(2.0 * np.pi * 1.0 * time)
+    #eePosCmd[2] = eePosIni[2] #+ 0.2 * np.cos(2.0 * np.pi * 1.0 * time)
+
     # 逆運動学を計算
+
     joint_positions_ref = p.calculateInverseKinematics(botId, kukaEndEffectorIndex, eePosCmd, eeOrnCmd);
     #joint_positions_ref = p.calculateInverseKinematics(botId, kukaEndEffectorIndex, eePosRef, eeOrnRef, lowerLimits=ll, upperLimits=ul, jointRanges=jr, restPoses=rp)
 
-    """
     # 制御入力の決定 (位置制御)
     for i in range(p.getNumJoints(botId)):
         p.setJointMotorControl2(bodyUniqueId=botId,
                                 jointIndex=i,
                                 controlMode=p.POSITION_CONTROL,
-                                targetPosition=0.0)
-    """
+                                targetPosition=joint_positions_ref[i])
 
+    """
     # 制御入力の決定 (速度制御)
     for i in range(p.getNumJoints(botId)):
         p.setJointMotorControl2(bodyUniqueId=botId,
                                 jointIndex=i,
                                 controlMode=p.VELOCITY_CONTROL,
                                 targetVelocity=10.0*(joint_positions_ref[i]-joint_positions[i]))
+    """
 
     """
     # 逆動力学計算
